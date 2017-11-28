@@ -21,7 +21,7 @@ import java.util.Scanner;
 import java.util.concurrent.ThreadLocalRandom;
 
 @SuppressWarnings({ "rawtypes", "unused" })
-class raymond_tree {
+class tpc {
 
 	// Common Variables and Data Storage.
 	static String coordinator = "";
@@ -41,7 +41,6 @@ class raymond_tree {
 	static float avg_delay = 0;
 	static float cs_counter = 0;
 	static int complete;
-	static Map<String, String> parent = new HashMap<String, String>();
 	static Map<String, String> id_hostnames = new HashMap<String, String>();
 
 	// Individual Process Variables.
@@ -105,9 +104,7 @@ class raymond_tree {
 					t2 = Integer.valueOf(list[1]);
 				} else if (list[0].equalsIgnoreCase("t3")) {
 					t3 = Integer.valueOf(list[1]);
-				} else {
-					parent.put(list[0], list[1]);
-				}
+				} 
 			}
 		}
 		System.out.println("Coordinator : " + coordinator);
@@ -260,134 +257,35 @@ class raymond_tree {
 
 		// On receiving request message.
 		else if (message.split(" ")[0].equalsIgnoreCase("request")) {
-			String[] list = message.split(" ");
-			int q = Integer.valueOf(list[1]);
-			
-			boolean in = false;
-			for(String x : queue) {
-				if(x.equalsIgnoreCase(list[1])){
-					in = true;
-				}
-			}
-			if(!in)
-				queue.add(list[1]);
-			
-			if (has_token && !in_cs) {
-				// if (queue.get(0).equalsIgnoreCase(list[1])) {
-				Timestamp time = new Timestamp(System.currentTimeMillis());
-				String msg = "Token " + sdf.format(time);
-				has_token = false;
-				holder = queue.get(0);
-				queue.remove(0);
-				System.out.println("SENT : " + msg + " to " + holder);
-				send_msg(my_nebr_hostnames.get(holder), 25555, msg);
-
-				// }
-			} else if (!has_token && !req_sent) {
-				String msg = "";
-				request_time = new Timestamp(System.currentTimeMillis());
-				msg = "Request " + id;
-				msg_count++;
-				req_sent = true;
-				send_msg(my_nebr_hostnames.get(holder), 25555, msg);
-			}
-			System.out.print("QUEUE : " + queue);
-			System.out.println("");
+		
 
 		}
 
 		// On receiving token
 		else if (message.split(" ")[0].equalsIgnoreCase("token")) {
 
-			String[] list = message.split(" ");
-
-			if (!queue.isEmpty()) {
-				if (queue.get(0).equalsIgnoreCase(id)) {
-					queue.remove(0);
-					SimpleDateFormat format = new SimpleDateFormat("HH.mm.ss");
-					Date date1 = (Date) format.parse(""
-							+ sdf.format(request_time));
-					Date date2 = (Date) format.parse(list[1]);
-					Date date3 = (Date) format.parse(""
-							+ sdf.format(new Timestamp(System
-									.currentTimeMillis())));
-
-					float difference = date2.getTime() - date1.getTime();
-					wait_time = date3.getTime() - date1.getTime();
-					delay = date3.getTime() - date2.getTime();
-					has_token = true;
-					req_sent = false;
-					start_cs();
-				} else {
-
-					holder = queue.get(0);
-					queue.remove(0);
-					req_sent = false;
-					has_token = false;
-					send_msg(my_nebr_hostnames.get(holder), 25555, message);
-					if (!queue.isEmpty()) {
-						String msg = "";
-						request_time = new Timestamp(System.currentTimeMillis());
-						msg = "Request " + id;
-						msg_count++;
-						req_sent = true;
-						send_msg(my_nebr_hostnames.get(holder), 25555, msg);
-
-					}
-				}
-			}
-			System.out.print("QUEUE : " + queue);
-			System.out.println("");
+		
 
 		}
 
 		// On receiving data from other process.
 		else if (message.split(" ")[0].equalsIgnoreCase("data")) {
-			String[] list = message.split(" ");
-
-			avg_msg_count = (avg_msg_count * cs_counter + Math.abs(Float
-					.parseFloat(list[1]))) / (cs_counter + 1);
-			avg_delay = (avg_delay * cs_counter + Math.abs(Float
-					.parseFloat(list[2]))) / (cs_counter + 1);
-			avg_wait_time = (avg_wait_time * cs_counter + Math.abs(Float
-					.parseFloat(list[2]))) / (cs_counter + 1);
-			cs_counter++;
+		
 		}
 
 		// On receiving completed from process.
 		else if (message.equalsIgnoreCase("completed")) {
-			complete++;
-			if (complete == no_process) {
-				Iterator it = id_hostnames.entrySet().iterator();
-				while (it.hasNext()) {
-					Map.Entry pair = (Map.Entry) it.next();
-					String id_proc = (String) pair.getKey();
-					String host = (String) pair.getValue();
-					String msg = "TERMINATE";
-					if (!id_proc.equalsIgnoreCase("0")) {
-						System.out.println("SENT " + msg + " to " + host);
-						send_msg(host, 25555, msg);
-					}
-
-				}
-				System.out.println("AVG MSG COUNT : " + avg_msg_count);
-				System.out.println("AVG DELAY : " + avg_delay);
-				System.out.println("AVG WAIT TIME : " + avg_wait_time);
-				System.out.println("Token : " + has_token);
-				System.exit(0);
-			}
-
+			
 		}
 
 		// On Receiving compute message.
 		else if (message.equalsIgnoreCase("compute")) {
-			compute();
+			
 		}
 
 		// On receiving terminate.
 		else if (message.equalsIgnoreCase("terminate")) {
-			System.out.println("Token : " + has_token);
-			System.exit(0);
+			
 		}
 	}
 
@@ -539,7 +437,7 @@ class raymond_tree {
 							// Also store its hostname.
 							active_process++;
 							String id = Integer.toString(active_process - 1);
-							returnMessage = "ACK " + id + " " + parent.get(id);
+							returnMessage = "ACK " + id;
 
 							// Store the id and the hostname in the map.
 							id_hostnames.put(id, hostName);
@@ -627,147 +525,6 @@ class raymond_tree {
 
 	// Simulates the computing process of a node on receiving a message.
 	public static void compute() {
-		try {
-			// Randomly sleep the thread for upto 5ms.
-			int randomNum = ThreadLocalRandom.current().nextInt(t1, t2 + 1);
-			Thread.sleep(randomNum);
-			queue.add(id);
-
-			// After waking up request critical section if it doesnt have token
-			if (!has_token) {
-				if (!req_sent) {
-					req_sent = true;
-					String msg = "";
-					request_time = new Timestamp(System.currentTimeMillis());
-					msg = "Request " + id;
-					msg_count++;				
-					send_msg(my_nebr_hostnames.get(holder), 25555, msg);
-					System.out.print("SENT : " + msg + " to " + holder);
-
-				}
-			}
-
-			else if (has_token) {
-
-				if (queue.get(0).equalsIgnoreCase(id)) {
-					queue.remove(0);
-					start_cs();
-				} else {
-					holder = queue.get(0);
-					queue.remove(0);
-					has_token = false;
-					Timestamp time = new Timestamp(System.currentTimeMillis());
-					String msg = "Token " + sdf.format(time);
-					System.out.print("SENT : " + msg);
-					send_msg(my_nebr_hostnames.get(holder), 25555, msg);
-					System.out.println("");
-					if (!queue.isEmpty()) {
-						req_sent = true;
-						String re_msg = "";
-						request_time = new Timestamp(System.currentTimeMillis());
-						re_msg = "Request " + id;
-						msg_count++;				
-						System.out
-								.println("SENT : " + re_msg + " to " + holder);
-						send_msg(my_nebr_hostnames.get(holder), 25555, re_msg);
-
-					}
-				}
-			}
-
-		} catch (InterruptedException e) {
-			e.printStackTrace();
-		}
 	}
-
-	public static void start_cs() throws InterruptedException {
-
-		in_cs = true;
-
-		System.out.println("ENTERING CS !!");
-		Thread.sleep(t3);
-		System.out.println("EXITING CS !!");
-
-		if (!is_coord) {
-			String data_msg = "DATA " + msg_count + " " + delay + " "
-					+ wait_time;
-			System.out.println("SENT : " + data_msg + " to coordinator");
-			send_msg(my_nebr_hostnames.get("0"), 25555, data_msg);
-
-		} else {
-			String data_msg = "DATA " + msg_count + " " + delay + " "
-					+ wait_time;
-			System.out.println("ADDED : " + data_msg + " to average");
-			avg_msg_count = (avg_msg_count * cs_counter + msg_count)
-					/ (cs_counter + 1);
-			avg_delay = (avg_delay * cs_counter + delay) / (cs_counter + 1);
-			avg_wait_time = (avg_wait_time * cs_counter + wait_time)
-					/ (cs_counter + 1);
-			cs_counter++;
-		}
-
-		// Reset data
-		msg_count = 0;
-		delay = 0;
-		wait_time = 0;
-
-		// If queue is not empty. Send the token.
-		if (!queue.isEmpty()) {
-			// Change the parent node.
-			holder = queue.get(0);
-			queue.remove(0);
-			Timestamp time = new Timestamp(System.currentTimeMillis());
-			has_token = false;
-			String msg = "Token " + sdf.format(time);
-			System.out.println("SENT : " + msg + " to " + holder);
-			send_msg(my_nebr_hostnames.get(holder), 25555, msg);
-			System.out.println("");
-
-			if (!queue.isEmpty()) {
-				String re_msg = "";
-				request_time = new Timestamp(System.currentTimeMillis());
-				re_msg = "Request " + id;
-				msg_count++;
-				req_sent = true;
-				System.out.println("SENT : " + re_msg + " to " + holder);
-				send_msg(my_nebr_hostnames.get(holder), 25555, re_msg);
-			}
-		}
-		System.out.print("QUEUE : " + queue);
-		System.out.println("");
-
-		in_cs = false;
-
-		run_count--;
-		System.out.println("RUN COUNT LEFT : " + run_count);
-		if (run_count > 0) {
-			compute();
-		} else {
-			if (!is_coord)
-				send_msg(my_nebr_hostnames.get("0"), 25555, "completed");
-			else {
-				complete++;
-				if (complete == no_process) {
-					Iterator it = id_hostnames.entrySet().iterator();
-					while (it.hasNext()) {
-						Map.Entry pair = (Map.Entry) it.next();
-						String id_proc = (String) pair.getKey();
-						String host = (String) pair.getValue();
-						String msg = "TERMINATE";
-						if (!id_proc.equalsIgnoreCase("0")) {
-
-							System.out.print("SENT " + msg + " to " + host);
-							System.out.println("");
-							send_msg(host, 25555, msg);
-						}
-					}
-					System.out.println("AVG MSG COUNT" + avg_msg_count);
-					System.out.println("AVG DELAY" + avg_delay);
-					System.out.println("AVG WAIT TIME" + avg_wait_time);
-					System.out.println("Token : " + has_token);
-					System.exit(0);
-				}
-			}
-		}
+	
 	}
-}
