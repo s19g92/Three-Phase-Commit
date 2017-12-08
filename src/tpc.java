@@ -6,6 +6,7 @@ import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.UnknownHostException;
 import java.util.Date;
 import java.sql.Timestamp;
 import java.text.ParseException;
@@ -20,6 +21,8 @@ import java.util.Random;
 import java.util.Scanner;
 import java.util.concurrent.ThreadLocalRandom;
 
+import sun.nio.cs.ext.ISCII91;
+
 @SuppressWarnings({ "rawtypes", "unused" })
 class tpc {
 
@@ -31,6 +34,7 @@ class tpc {
 	static int value;
 	static boolean aborting = false;
 	static boolean commit = false;
+	static boolean abt =false;
 	static String stateFile = "";
 
 	// Coordinator only data.
@@ -59,6 +63,8 @@ class tpc {
 				id = "0";
 				stateFile = "state_" + id + ".txt";
 
+				read_config();
+
 				Scanner sc3 = null;
 				File f = new File("commit_" + id + ".txt");
 				if (f.exists() && !f.isDirectory()) {
@@ -77,49 +83,141 @@ class tpc {
 						}
 					}
 				}
+				System.out.println("Coordinator : " + coordinator);
+				System.out.println("Is coordinator : " + is_coord);
+
+				// If the node is the coordinator then start listener.
+				Thread start = new Thread() {
+					public void run() {
+						if (is_coord) {
+							coord_register_new();
+							recv_msg();
+							// If the node is not the coordinator send register.
+						} else {
+							process_register();
+							recv_msg();
+						}
+						System.out.println("Program thread exited");
+					}
+				};
+				start.start();
 			}
 
-		/*	else if (args[0].equalsIgnoreCase("-r")) {
-				Scanner sc3 = null;
-				File f = new File("commit_" + id + ".txt");
-				if (f.exists() && !f.isDirectory()) {
-					try {
-						sc3 = new Scanner(new File("commit_" + id + ".txt"));
-					} catch (FileNotFoundException e) {
-					}
-					while (sc3.hasNextLine()) {
-						String next = sc3.nextLine();
-						String[] list;
-						if (!next.isEmpty()) {
-							list = next.split("\\s");
-							if (list[0].equalsIgnoreCase("commit")) {
-								t_id = Integer.valueOf(list[1]) + 1;
+			else if (args[0].equalsIgnoreCase("-r")) {
+
+				read_config();
+
+				InetAddress ip;
+				String host = "";
+				try {
+					ip = InetAddress.getLocalHost();
+					host = ip.getHostName();
+				} catch (UnknownHostException e1) {
+					// TODO Auto-generated catch block
+					e1.printStackTrace();
+				}
+
+				if (host.equalsIgnoreCase(coordinator)
+						|| host.equalsIgnoreCase(coordinator + ".utdallas.edu")) {
+					is_coord = true;
+					id = "0";
+					stateFile = "state_" + id + ".txt";
+					
+					Thread start = new Thread() {
+						public void run() {
+							recv_msg();
+						}
+					};
+					start.start();
+
+					Scanner sc3 = null;
+					File f = new File("state_" + id + ".txt");
+					if (f.exists() && !f.isDirectory()) {
+						try {
+							sc3 = new Scanner(new File("state_" + id + ".txt"));
+						} catch (FileNotFoundException e) {
+						}
+						while (sc3.hasNextLine()) {
+							String next = sc3.nextLine();
+							String[] list;
+							if (!next.isEmpty()) {
+								list = next.split(" ");
+								if (list[0].equalsIgnoreCase("P")) {
+									t_id = Integer.valueOf(list[1]);
+									value = Integer.valueOf(list[2]);
+									coord_commit();
+								} else {
+									System.out
+											.println("Aborted after recovery!");
+									coord_q();
+								}
 							}
 						}
-					}
-				}
-			}*/
-		}
-		read_config();
+					}		
 
-		System.out.println("Coordinator : " + coordinator);
-		System.out.println("Is coordinator : " + is_coord);
-
-		// If the node is the coordinator then start listener.
-		Thread start = new Thread() {
-			public void run() {
-				if (is_coord) {
-					coord_register_new();
-					recv_msg();
-					// If the node is not the coordinator send register.
 				} else {
-					process_register();
-					recv_msg();
+					// Ask the coordinator what was the id assigned to the
+					// process.
+					Thread start = new Thread() {
+						public void run() {
+							recv_msg();
+						}
+					};
+					start.start();
+					send_msg(coordinator, 25555, "query " + host);
+
+					try {
+						Thread.sleep(3000);
+					} catch (Exception e) {
+						// To DO
+					}
+					stateFile = "state_" + id + ".txt";
+
+					Scanner sc3 = null;
+					File f = new File("state_" + id + ".txt");
+					if (f.exists() && !f.isDirectory()) {
+						try {
+							sc3 = new Scanner(new File("state_" + id + ".txt"));
+						} catch (FileNotFoundException e) {
+						}
+						while (sc3.hasNextLine()) {
+							String next = sc3.nextLine();
+							String[] list;
+							if (!next.isEmpty()) {
+								list = next.split(" ");
+								if (list[0].equalsIgnoreCase("P")) {
+									t_id = Integer.valueOf(list[1]);
+									value = Integer.valueOf(list[2]);
+									cohort_commit();
+								} else {
+									cohort_abort("Recovered from failure !");
+								}
+							}
+						}
+					}
 				}
-				System.out.println("Program thread exited");
 			}
-		};
-		start.start();
+		} else {
+			read_config();
+			System.out.println("Coordinator : " + coordinator);
+			System.out.println("Is coordinator : " + is_coord);
+
+			// If the node is the coordinator then start listener.
+			Thread start = new Thread() {
+				public void run() {
+					if (is_coord) {
+						coord_register_new();
+						recv_msg();
+						// If the node is not the coordinator send register.
+					} else {
+						process_register();
+						recv_msg();
+					}
+					System.out.println("Program thread exited");
+				}
+			};
+			start.start();
+		}
 	}
 
 	// Read from the dsConfig file the stats.
@@ -140,6 +238,8 @@ class tpc {
 					coordinator = list[1];
 				} else if (list[0].equalsIgnoreCase("number")) {
 					no_process = Integer.valueOf(list[3]);
+				} else {
+					id_hostnames.put(list[0], list[1]);
 				}
 			}
 		}
@@ -385,6 +485,16 @@ class tpc {
 
 							// Store the id and the hostname in the map.
 							id_hostnames.put(id, hostName);
+							try {
+								BufferedWriter WriteFile = new BufferedWriter(
+										new FileWriter("dsConfig", true));
+								WriteFile.write(id + " " + hostName);
+								WriteFile.write("\n");
+								WriteFile.close();
+
+							} catch (IOException e) {
+								e.printStackTrace();
+							}
 
 							// Sending the response back to the process.
 							OutputStream os = socket.getOutputStream();
@@ -424,16 +534,19 @@ class tpc {
 		if (list[0].equalsIgnoreCase("Request")) {
 			t_id = Integer.valueOf(list[1]);
 			value = Integer.valueOf(list[2]);
+			abt = false;
 			try {
-				send_msg(coordinator, 25555, "agreed");
+				
 				try {
 					BufferedWriter WriteFile = new BufferedWriter(
 							new FileWriter(stateFile));
-					WriteFile.write("W");
+					WriteFile.write("W " + t_id + " " + value);
 					WriteFile.close();
 				} catch (IOException e) {
 					e.printStackTrace();
 				}
+				Thread.sleep(3000);
+				send_msg(coordinator, 25555, "agreed");
 				Thread.sleep(5000);
 				if (!prepare) {
 					cohort_abort("Prepare not received");
@@ -457,36 +570,46 @@ class tpc {
 		// On receiving abort message.
 		else if (list[0].equalsIgnoreCase("abort")) {
 			if (is_coord) {
+				abt = true;
 				coord_abort();
 			} else {
+				abt = true;
+				prepare = false;
+				commit = false;
 				cohort_abort("Abort recived");
 			}
 		}
 
-		// On receiving abort message.
+		// On receiving prepare message.
 		else if (list[0].equalsIgnoreCase("prepare")) {
 			prepare = true;
 			try {
-				send_msg(coordinator, 25555, "ack");
+				
 				try {
 					BufferedWriter WriteFile = new BufferedWriter(
 							new FileWriter(stateFile));
-					WriteFile.write("P");
+					WriteFile.write("P " + t_id + " " + value);
 					WriteFile.close();
 				} catch (IOException e) {
 					e.printStackTrace();
 				}
+				Thread.sleep(3000);
+				try{
+					send_msg(coordinator, 25555, "ack");
+				}catch (Exception e){
+					cohort_commit();
+				}
 				Thread.sleep(5000);
 				if (!commit) {
-					cohort_abort("Commit not received");
+					cohort_commit();
 				}
 				commit = false;
 			} catch (Exception e) {
-				cohort_abort("Cordinator down");
+				
 			}
 		}
 
-		// On receiving abort message.
+		// On receiving ack message.
 		else if (list[0].equalsIgnoreCase("ack")) {
 			ack_count++;
 			if (ack_count == no_process) {
@@ -496,10 +619,29 @@ class tpc {
 			}
 		}
 
-		// On receiving abort message.
+		// On receiving commit  message.
 		else if (list[0].equalsIgnoreCase("commit")) {
 			commit = true;
 			cohort_commit();
+		}
+
+		// On receiving id message.
+		else if (list[0].equalsIgnoreCase("id")) {
+			id = list[1];
+		}
+
+		// On receiving query message.
+		else if (list[0].equalsIgnoreCase("query")) {
+			Iterator it = id_hostnames.entrySet().iterator();
+
+			while (it.hasNext()) {
+				Map.Entry pair = (Map.Entry) it.next();
+				String id_proc = (String) pair.getKey();
+				String host = (String) pair.getValue();
+				if (host.equalsIgnoreCase(list[1])) {
+					send_msg(host, 25555, "id " + id_proc);
+				}
+			}
 		}
 
 		// exit
@@ -513,7 +655,7 @@ class tpc {
 	public static void coord_q() {
 
 		try {
-			Thread.sleep(2000);
+			Thread.sleep(3000);
 		} catch (InterruptedException e1) {
 			e1.printStackTrace();
 		}
@@ -530,6 +672,7 @@ class tpc {
 		}
 
 		// Send a commit message to all cohorts.
+		boolean abort = false;
 		Iterator it = id_hostnames.entrySet().iterator();
 
 		while (it.hasNext()) {
@@ -537,10 +680,13 @@ class tpc {
 			String id_proc = (String) pair.getKey();
 			String host = (String) pair.getValue();
 			try {
+				if(!abort) {
 				System.out.println("SENT " + msg + " to " + host);
-				send_msg(host, 25555, msg);			
+				send_msg(host, 25555, msg);
+				}
 			} catch (Exception e) {
 				System.out.println("One of the cohorts is down! Aborting.");
+				abort = true;
 				coord_abort();
 			}
 		}
@@ -548,74 +694,88 @@ class tpc {
 		if (value == 0) {
 			System.exit(0);
 		}
-		
+		abort = false;
 		try {
 			BufferedWriter WriteFile = new BufferedWriter(new FileWriter(
 					stateFile));
-			WriteFile.write("W");
+			WriteFile.write("W " + t_id + " " + value);
 			WriteFile.close();
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
-		
-		try{
-			Thread.sleep(5000);
-			if(!agreed){
-				coord_abort();
+		Thread test = new Thread() {
+			public void run() {
+				try {
+					Thread.sleep(5000);
+					if (!agreed) {
+						coord_abort();
+					}
+					agreed = false;
+				} catch (Exception e) {
+					// To Do
+				}
 			}
-			agreed = false;
-		}catch(Exception e){
-			//To Do
-		}
+		};
+		test.start();
 	}
 
 	public static void coord_w() {
 
 		try {
-			Thread.sleep(1000);
+			Thread.sleep(3000);
 		} catch (InterruptedException e1) {
 			e1.printStackTrace();
 		}
 		// Send prepare to all the cohorts.
+		boolean abort = false;
 		Iterator it = id_hostnames.entrySet().iterator();
 		String msg = "Prepare";
 		while (it.hasNext()) {
 			Map.Entry pair = (Map.Entry) it.next();
 			String id_proc = (String) pair.getKey();
 			String host = (String) pair.getValue();
-			try {
+			try {	
+				if(!abort) {
 				System.out.println("SENT " + msg + " to " + host);
 				send_msg(host, 25555, msg);
+				}
 			} catch (Exception e) {
 				System.out.print("One of the cohorts is down! Aborting.");
+				abort = true;
 				coord_abort();
 			}
 		}
+		abort = false;
 		try {
 			BufferedWriter WriteFile = new BufferedWriter(new FileWriter(
 					stateFile));
-			WriteFile.write("P");
+			WriteFile.write("P " + t_id + " " + value);
 			WriteFile.close();
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
-		
-		
-		try{
-			Thread.sleep(5000);
-			if(!ack){
-				coord_abort();
+
+		Thread test = new Thread() {
+			public void run() {
+				try {
+					Thread.sleep(5000);
+					if (!ack) {
+						coord_abort();
+					}
+					ack = false;
+				} catch (Exception e) {
+					// To Do
+				}
 			}
-			ack = false;
-		}catch(Exception e){
-			//To Do
-		}
+		};
+		test.start();
+	
 	}
 
 	public static void coord_p() {
 
 		try {
-			Thread.sleep(1000);
+			Thread.sleep(3000);
 		} catch (InterruptedException e1) {
 			e1.printStackTrace();
 		}
@@ -673,11 +833,13 @@ class tpc {
 				}
 			}
 		}
-
+		t_id++;
+		coord_q();
 	}
 
 	// The following functions simulate the computing process of cohort.
 	public static void cohort_commit() {
+		if(!abt){
 		System.out.println("!!!!!! Transaction Committed !!!!!!!");
 		try {
 			BufferedWriter WriteFile = new BufferedWriter(new FileWriter(
@@ -689,9 +851,10 @@ class tpc {
 			e.printStackTrace();
 		}
 	}
+	}
 
 	public static void cohort_abort(String emsg) {
 		System.out.println("Aborted ! " + emsg);
+		
 	}
-
 }
